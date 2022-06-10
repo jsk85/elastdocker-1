@@ -1,30 +1,6 @@
 version: '3.5'
 
-# To Join any other app setup using another network, change name and set external = true
-networks:
-  default:
-    name: elastic
-    external: false
 
-# will contain all elasticsearch data.
-volumes:
-  elasticsearch-data:
-
-secrets:
-  elasticsearch.keystore:
-    file: ./secrets/keystore/elasticsearch.keystore
-  elasticsearch.service_tokens:
-    file: ./secrets/service_tokens
-  elastic.ca:
-    file: ./secrets/certs/ca/ca.crt
-  elasticsearch.certificate:
-    file: ./secrets/certs/elasticsearch/elasticsearch.crt
-  elasticsearch.key:
-    file: ./secrets/certs/elasticsearch/elasticsearch.key
-  kibana.certificate:
-    file: ./secrets/certs/kibana/kibana.crt
-  kibana.key:
-    file: ./secrets/certs/kibana/kibana.key
 
 services:
   elasticsearch:
@@ -47,6 +23,8 @@ services:
       - elasticsearch-data:/usr/share/elasticsearch/data
       - ./elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
       - ./elasticsearch/config/log4j2.properties:/usr/share/elasticsearch/config/log4j2.properties
+    networks:
+      - traefik_proxy
     secrets:
       - source: elasticsearch.keystore
         target: /usr/share/elasticsearch/config/elasticsearch.keystore
@@ -95,13 +73,15 @@ services:
       - "9600:9600"
     healthcheck:
       test: ["CMD", "curl", "-s" ,"-XGET", "http://127.0.0.1:9600"]
-
+    networks:
+      - traefik_proxy
   kibana:
     image: elastdocker/kibana:${ELK_VERSION}
     build:
       context: kibana/
       args:
         ELK_VERSION: $ELK_VERSION
+    container_name: kibana
     restart: unless-stopped
     volumes:
       - ./kibana/config/:/usr/share/kibana/config:ro
@@ -120,3 +100,45 @@ services:
         target: /certs/kibana.key
     ports:
       - "5601:5601"
+    networks:
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kibana-secure.entrypoints=websecure"
+      - "traefik.http.routers.kibana-secure.rule=Host(`kibana.jskcloud.es`)"
+      - "traefik.http.routers.kibana-secure.tls=true"
+      - "traefik.http.routers.kibana-secure.tls.certresolver=lets-encr"
+      - "traefik.http.routers.kibana-secure.service=kibana-secure"
+      - "traefik.http.services.kibana-secure.loadbalancer.server.port=5601"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.http.routers.kibana-secure.middlewares=authelia@docker"
+
+# will contain all elasticsearch data.
+volumes:
+  elasticsearch-data:
+
+secrets:
+  elasticsearch.keystore:
+    file: ./secrets/keystore/elasticsearch.keystore
+  elasticsearch.service_tokens:
+    file: ./secrets/service_tokens
+  elastic.ca:
+    file: ./secrets/certs/ca/ca.crt
+  elasticsearch.certificate:
+    file: ./secrets/certs/elasticsearch/elasticsearch.crt
+  elasticsearch.key:
+    file: ./secrets/certs/elasticsearch/elasticsearch.key
+  kibana.certificate:
+    file: ./secrets/certs/kibana/kibana.crt
+  kibana.key:
+    file: ./secrets/certs/kibana/kibana.key      
+
+
+# To Join any other app setup using another network, change name and set external = true
+networks:
+  default:
+    name: elastic
+    external: false    
+  traefik_proxy:
+    external: true
+
